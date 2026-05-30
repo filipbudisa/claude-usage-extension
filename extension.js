@@ -163,9 +163,22 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._sevenDay = mkSection('7-Day Usage');
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        this._refreshItem = new PopupMenu.PopupMenuItem('Refresh');
+        // Override activate (rather than connect) so the 'activate' signal is
+        // never emitted — that signal is what makes the parent menu close.
+        // This keeps the popup open while refreshing.
+        this._refreshItem.activate = () => this._refreshUsage();
+        this.menu.addMenuItem(this._refreshItem);
+
         const settingsItem = new PopupMenu.PopupMenuItem('Settings');
         settingsItem.connect('activate', () => ExtensionUtils.openPrefs());
         this.menu.addMenuItem(settingsItem);
+    }
+
+    _setRefreshing(active) {
+        if (!this._refreshItem) return;
+        this._refreshItem.setSensitive(!active);
+        this._refreshItem.label.text = active ? 'Refreshing…' : 'Refresh';
     }
 
     _startTimer() {
@@ -183,6 +196,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
     _restartTimer() { this._stopTimer(); this._startTimer(); }
 
     _refreshUsage() {
+        this._setRefreshing(true);
         const configDir = GLib.getenv('CLAUDE_CONFIG_DIR') ??
             GLib.build_filenamev([GLib.get_home_dir(), '.claude']);
         const credPath = GLib.build_filenamev([configDir, '.credentials.json']);
@@ -217,12 +231,14 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
     }
 
     _setError(msg) {
+        this._setRefreshing(false);
         this._label.set_text(msg);
         this._fiveHour.pct.set_text(msg);
         this._sevenDay.pct.set_text('—');
     }
 
     _updateDisplay(data) {
+        this._setRefreshing(false);
         this._lastData = data;
         const fh = data.five_hour?.utilization ?? 0;
         const sd = data.seven_day?.utilization ?? 0;
