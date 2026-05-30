@@ -26,5 +26,10 @@
       <summary>Proxy URL</summary>
       <description>HTTP proxy URL (e.g., http://localhost:11809). Leave empty to use no proxy.</description>
     </key>
+    <key name="monitor" type="i">
+      <default>0</default>
+      <summary>Monitor index</summary>
+      <description>Index of the monitor to display the indicator on (0 = primary).</description>
+    </key>
   </schema>
 </schemalist>

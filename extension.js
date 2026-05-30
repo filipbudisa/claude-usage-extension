@@ -13,6 +13,8 @@ const Me = ExtensionUtils.getCurrentExtension();
 const API_URL = 'https://api.anthropic.com/api/oauth/usage';
 
 let _indicator = null;
+let _settings = null;
+let _monitorChangedId = null;
 
 const ClaudeUsageIndicator = GObject.registerClass(
 class ClaudeUsageIndicator extends PanelMenu.Button {
@@ -270,12 +272,23 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
 function init() {}
 
+function _placeIndicator() {
+    _indicator?.destroy();
+    _indicator = new ClaudeUsageIndicator(Me.path, _settings);
+    const monitorIndex = _settings.get_int('monitor');
+    const dtpPanel = global.dashToPanel?.panels?.find(p => p.monitor.index === monitorIndex);
+    (dtpPanel ? dtpPanel.panel : Main.panel).addToStatusArea(Me.uuid, _indicator);
+}
+
 function enable() {
-    _indicator = new ClaudeUsageIndicator(Me.path, ExtensionUtils.getSettings());
-    Main.panel.addToStatusArea(Me.uuid, _indicator);
+    _settings = ExtensionUtils.getSettings();
+    _monitorChangedId = _settings.connect('changed::monitor', _placeIndicator);
+    _placeIndicator();
 }
 
 function disable() {
+    if (_monitorChangedId) { _settings.disconnect(_monitorChangedId); _monitorChangedId = null; }
     _indicator?.destroy();
     _indicator = null;
+    _settings = null;
 }

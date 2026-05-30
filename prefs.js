@@ -1,6 +1,6 @@
 'use strict';
 
-const { Gtk, Gio } = imports.gi;
+const { Gtk, Gdk, Gio } = imports.gi;
 const ExtensionUtils = imports.misc.extensionUtils;
 
 function init() {}
@@ -52,6 +52,16 @@ function buildPrefsWidget() {
     const showIconSwitch = new Gtk.Switch({ valign: Gtk.Align.CENTER });
     settings.bind('show-icon', showIconSwitch, 'active', Gio.SettingsBindFlags.DEFAULT);
     addRow('Show icon', showIconSwitch);
+
+    // Monitor
+    const nMonitors = Gdk.Display.get_default()?.get_monitors().get_n_items() ?? 1;
+    const monitorCombo = new Gtk.ComboBoxText();
+    for (let i = 0; i < nMonitors; i++)
+        monitorCombo.append(String(i), i === 0 ? `Monitor 0 (primary)` : `Monitor ${i}`);
+    monitorCombo.set_active_id(String(settings.get_int('monitor')));
+    monitorCombo.connect('changed', () =>
+        settings.set_int('monitor', parseInt(monitorCombo.get_active_id())));
+    addRow('Monitor', monitorCombo);
 
     // Proxy URL
     const proxyEntry = new Gtk.Entry({
