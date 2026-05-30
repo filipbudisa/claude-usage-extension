@@ -53,10 +53,12 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._box.add_child(this._label);
         this.add_child(this._box);
 
+        this._lastData = null;
         this._createMenu();
         this._updateDisplayMode();
         this._updateIconVisibility();
         this._updateIconStyle();
+
 
         this._settingsChangedId = this._settings.connect('changed', (_s, key) => {
             if (key === 'refresh-interval') this._restartTimer();
@@ -122,9 +124,9 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
     _createMenu() {
         const mkSection = (title) => {
-            const box = new St.BoxLayout({ style_class: 'claude-usage-section', vertical: true });
+            const box = new St.BoxLayout({ style_class: 'claude-usage-section', vertical: true, x_expand: true, x_align: Clutter.ActorAlign.FILL });
 
-            const header = new St.BoxLayout({ vertical: false });
+            const header = new St.BoxLayout({ vertical: false, x_expand: true, x_align: Clutter.ActorAlign.FILL });
             header.add_child(new St.Label({ text: title, style_class: 'claude-section-title' }));
             const pct = new St.Label({
                 text: '...',
@@ -135,7 +137,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             header.add_child(pct);
             box.add_child(header);
 
-            const progressBg = new St.Widget({ style_class: 'claude-progress-bg' });
+            const progressBg = new St.Widget({ style_class: 'claude-progress-bg', x_expand: true, x_align: Clutter.ActorAlign.FILL });
             const progressBar = new St.Widget({ style_class: 'claude-progress-bar usage-low' });
             progressBg.add_child(progressBar);
             box.add_child(progressBg);
@@ -143,11 +145,20 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             const resetLabel = new St.Label({ text: 'Resets: ...', style_class: 'claude-reset-label' });
             box.add_child(resetLabel);
 
+            // PopupMenuSection has no ornament label or extra left padding,
+            // so the content aligns with the separator lines.
             const item = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
+            item._ornamentLabel.hide();
             item.add_child(box);
             this.menu.addMenuItem(item);
 
-            return { pct, progressBar, resetLabel };
+            const section = { pct, progressBg, progressBar, resetLabel, lastUsage: 0 };
+            progressBg.connect('notify::width', () => {
+                const w = progressBg.get_width();
+                if (w > 0)
+                    section.progressBar.set_width(Math.round(section.lastUsage / 100 * w));
+            });
+            return section;
         };
 
         this._fiveHour = mkSection('5-Hour Usage');
@@ -215,6 +226,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
     }
 
     _updateDisplay(data) {
+        this._lastData = data;
         const fh = data.five_hour?.utilization ?? 0;
         const sd = data.seven_day?.utilization ?? 0;
 
@@ -222,12 +234,12 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._updatePanelBar(fh);
 
         this._fiveHour.pct.set_text(`${fh.toFixed(1)}%`);
-        this._updateBar(this._fiveHour.progressBar, fh);
+        this._updateBar(this._fiveHour, fh);
         if (data.five_hour?.resets_at)
             this._fiveHour.resetLabel.set_text(`Resets in ${this._formatReset(data.five_hour.resets_at)}`);
 
         this._sevenDay.pct.set_text(`${sd.toFixed(1)}%`);
-        this._updateBar(this._sevenDay.progressBar, sd);
+        this._updateBar(this._sevenDay, sd);
         if (data.seven_day?.resets_at)
             this._sevenDay.resetLabel.set_text(`Resets in ${this._formatReset(data.seven_day.resets_at)}`);
     }
@@ -236,8 +248,13 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this._panelProgressBar.set_width(Math.round(Math.min(100, Math.max(0, usage)) / 100 * 50));
     }
 
-    _updateBar(bar, usage) {
-        bar.set_width(Math.round(Math.min(100, Math.max(0, usage)) / 100 * 200));
+    _updateBar(section, usage) {
+        section.lastUsage = Math.min(100, Math.max(0, usage));
+        const w = section.progressBg.get_width();
+        if (w > 0)
+            section.progressBar.set_width(Math.round(section.lastUsage / 100 * w));
+
+        const bar = section.progressBar;
         ['usage-low', 'usage-medium', 'usage-high', 'usage-critical'].forEach(c => bar.remove_style_class_name(c));
         if (usage >= 90) bar.add_style_class_name('usage-critical');
         else if (usage >= 70) bar.add_style_class_name('usage-high');
