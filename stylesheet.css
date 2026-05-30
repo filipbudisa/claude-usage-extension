@@ -43,34 +43,10 @@
     color: #ffffff;
 }
 
-/* Progress bar styles */
-.claude-progress-bg {
-    background-color: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+/* Progress bar (rendered with Cairo in a St.DrawingArea) */
+.claude-progress {
     height: 8px;
     margin: 4px 0;
-}
-
-.claude-progress-bar {
-    height: 8px;
-    border-radius: 4px;
-    transition: width 300ms ease-out;
-}
-
-.claude-progress-bar.usage-low {
-    background-color: #22c55e;
-}
-
-.claude-progress-bar.usage-medium {
-    background-color: #eab308;
-}
-
-.claude-progress-bar.usage-high {
-    background-color: #f97316;
-}
-
-.claude-progress-bar.usage-critical {
-    background-color: #ef4444;
 }
 
 /* Reset label styles */

@@ -137,10 +137,11 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             header.add_child(pct);
             box.add_child(header);
 
-            const progressBg = new St.Widget({ style_class: 'claude-progress-bg', x_expand: true, x_align: Clutter.ActorAlign.FILL });
-            const progressBar = new St.Widget({ style_class: 'claude-progress-bar usage-low' });
-            progressBg.add_child(progressBar);
-            box.add_child(progressBg);
+            // A DrawingArea repaints with the correct allocation every time it
+            // is shown or resized, so the fill is always right — no fragile
+            // get_width()/set_width() juggling against the open animation.
+            const bar = new St.DrawingArea({ style_class: 'claude-progress', x_expand: true, x_align: Clutter.ActorAlign.FILL });
+            box.add_child(bar);
 
             const resetLabel = new St.Label({ text: 'Resets: ...', style_class: 'claude-reset-label' });
             box.add_child(resetLabel);
@@ -152,12 +153,8 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             item.add_child(box);
             this.menu.addMenuItem(item);
 
-            const section = { pct, progressBg, progressBar, resetLabel, lastUsage: 0 };
-            progressBg.connect('notify::width', () => {
-                const w = progressBg.get_width();
-                if (w > 0)
-                    section.progressBar.set_width(Math.round(section.lastUsage / 100 * w));
-            });
+            const section = { pct, bar, resetLabel, lastUsage: 0 };
+            bar.connect('repaint', () => this._drawBar(section));
             return section;
         };
 
@@ -250,16 +247,50 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
     _updateBar(section, usage) {
         section.lastUsage = Math.min(100, Math.max(0, usage));
-        const w = section.progressBg.get_width();
-        if (w > 0)
-            section.progressBar.set_width(Math.round(section.lastUsage / 100 * w));
+        section.bar.queue_repaint();
+    }
 
-        const bar = section.progressBar;
-        ['usage-low', 'usage-medium', 'usage-high', 'usage-critical'].forEach(c => bar.remove_style_class_name(c));
-        if (usage >= 90) bar.add_style_class_name('usage-critical');
-        else if (usage >= 70) bar.add_style_class_name('usage-high');
-        else if (usage >= 40) bar.add_style_class_name('usage-medium');
-        else bar.add_style_class_name('usage-low');
+    _barColor(usage) {
+        if (usage >= 90) return [0.937, 0.267, 0.267]; // #ef4444 critical
+        if (usage >= 70) return [0.976, 0.451, 0.086]; // #f97316 high
+        if (usage >= 40) return [0.918, 0.702, 0.031]; // #eab308 medium
+        return [0.133, 0.773, 0.369];                  // #22c55e low
+    }
+
+    _roundRect(cr, x, y, w, h, r) {
+        const HALF_PI = Math.PI / 2;
+        cr.newSubPath();
+        cr.arc(x + w - r, y + r, r, -HALF_PI, 0);
+        cr.arc(x + w - r, y + h - r, r, 0, HALF_PI);
+        cr.arc(x + r, y + h - r, r, HALF_PI, Math.PI);
+        cr.arc(x + r, y + r, r, Math.PI, 3 * HALF_PI);
+        cr.closePath();
+    }
+
+    _drawBar(section) {
+        const area = section.bar;
+        const cr = area.get_context();
+        const [w, h] = area.get_surface_size();
+        if (w <= 0 || h <= 0) { cr.$dispose(); return; }
+
+        const r = h / 2;
+        const pct = Math.min(100, Math.max(0, section.lastUsage)) / 100;
+
+        // Background track.
+        this._roundRect(cr, 0, 0, w, h, r);
+        cr.setSourceRGBA(1, 1, 1, 0.1);
+        cr.fill();
+
+        // Filled portion (at least a rounded dot when > 0).
+        if (pct > 0) {
+            const fw = Math.max(h, w * pct);
+            const c = this._barColor(section.lastUsage);
+            this._roundRect(cr, 0, 0, fw, h, r);
+            cr.setSourceRGBA(c[0], c[1], c[2], 1);
+            cr.fill();
+        }
+
+        cr.$dispose();
     }
 
     _formatReset(iso) {
