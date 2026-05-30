@@ -3,7 +3,21 @@
 const { Gtk, Gdk, Gio } = imports.gi;
 const ExtensionUtils = imports.misc.extensionUtils;
 
+const DASH_TO_PANEL_UUID = 'dash-to-panel@jderose9.github.com';
+
 function init() {}
+
+// Prefs run in a separate process without `global`, so check GNOME Shell's
+// list of enabled extensions to know whether Dash to Panel is active.
+function _dashToPanelEnabled() {
+    try {
+        return Gio.Settings.new('org.gnome.shell')
+            .get_strv('enabled-extensions')
+            .includes(DASH_TO_PANEL_UUID);
+    } catch (_) {
+        return false;
+    }
+}
 
 function buildPrefsWidget() {
     const settings = ExtensionUtils.getSettings();
@@ -53,15 +67,19 @@ function buildPrefsWidget() {
     settings.bind('show-icon', showIconSwitch, 'active', Gio.SettingsBindFlags.DEFAULT);
     addRow('Show icon', showIconSwitch);
 
-    // Monitor
-    const nMonitors = Gdk.Display.get_default()?.get_monitors().get_n_items() ?? 1;
-    const monitorCombo = new Gtk.ComboBoxText();
-    for (let i = 0; i < nMonitors; i++)
-        monitorCombo.append(String(i), i === 0 ? `Monitor 0 (primary)` : `Monitor ${i}`);
-    monitorCombo.set_active_id(String(settings.get_int('monitor')));
-    monitorCombo.connect('changed', () =>
-        settings.set_int('monitor', parseInt(monitorCombo.get_active_id())));
-    addRow('Monitor', monitorCombo);
+    // Monitor — only meaningful with Dash to Panel, which provides a panel on
+    // each monitor. On the stock top bar there is only one panel (primary), so
+    // the setting can't move the indicator. Hide the row when DtP is absent.
+    if (_dashToPanelEnabled()) {
+        const nMonitors = Gdk.Display.get_default()?.get_monitors().get_n_items() ?? 1;
+        const monitorCombo = new Gtk.ComboBoxText();
+        for (let i = 0; i < nMonitors; i++)
+            monitorCombo.append(String(i), i === 0 ? `Monitor 0 (primary)` : `Monitor ${i}`);
+        monitorCombo.set_active_id(String(settings.get_int('monitor')));
+        monitorCombo.connect('changed', () =>
+            settings.set_int('monitor', parseInt(monitorCombo.get_active_id())));
+        addRow('Monitor', monitorCombo);
+    }
 
     // Proxy URL
     const proxyEntry = new Gtk.Entry({
