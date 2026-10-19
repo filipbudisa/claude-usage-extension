@@ -1,11 +1,13 @@
 'use strict';
 
-const { Gtk, Gdk, Gio } = imports.gi;
-const ExtensionUtils = imports.misc.extensionUtils;
+import Gio from 'gi://Gio';
+import Gdk from 'gi://Gdk';
+import Gtk from 'gi://Gtk';
+import Adw from 'gi://Adw';
+
+import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
 const DASH_TO_PANEL_UUID = 'dash-to-panel@jderose9.github.com';
-
-function init() {}
 
 // Prefs run in a separate process without `global`, so check GNOME Shell's
 // list of enabled extensions to know whether Dash to Panel is active.
@@ -19,76 +21,79 @@ function _dashToPanelEnabled() {
     }
 }
 
-function buildPrefsWidget() {
-    const settings = ExtensionUtils.getSettings();
+export default class ClaudeUsagePreferences extends ExtensionPreferences {
+    fillPreferencesWindow(window) {
+        const settings = this.getSettings();
 
-    const box = new Gtk.Box({
-        orientation: Gtk.Orientation.VERTICAL,
-        margin_top: 20, margin_bottom: 20,
-        margin_start: 20, margin_end: 20,
-        spacing: 14,
-    });
+        const page = new Adw.PreferencesPage();
+        const group = new Adw.PreferencesGroup();
+        page.add(group);
+        window.add(page);
 
-    function addRow(labelText, widget) {
-        const row = new Gtk.Box({ spacing: 12 });
-        row.append(new Gtk.Label({ label: labelText, xalign: 0, hexpand: true }));
-        row.append(widget);
-        box.append(row);
+        // Refresh interval
+        const intervalRow = new Adw.SpinRow({
+            title: 'Refresh interval',
+            subtitle: 'Seconds',
+            adjustment: new Gtk.Adjustment({
+                lower: 10, upper: 600, step_increment: 10,
+                value: settings.get_int('refresh-interval'),
+            }),
+        });
+        settings.bind('refresh-interval', intervalRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        group.add(intervalRow);
+
+        // String-keyed combo rows (Adw.ComboRow selects by index, GSettings
+        // stores an id string, so map between the two).
+        const addComboRow = (title, key, entries) => {
+            const row = new Adw.ComboRow({
+                title,
+                model: Gtk.StringList.new(entries.map(([, label]) => label)),
+            });
+            const ids = entries.map(([id]) => id);
+            row.selected = Math.max(0, ids.indexOf(settings.get_string(key)));
+            row.connect('notify::selected', () => settings.set_string(key, ids[row.selected]));
+            group.add(row);
+        };
+
+        addComboRow('Display mode', 'display-mode', [
+            ['text', 'Text (percentage)'],
+            ['bar', 'Progress Bar'],
+            ['both', 'Both'],
+        ]);
+
+        addComboRow('Icon style', 'icon-style', [
+            ['color', 'Color'],
+            ['monochrome', 'Monochrome'],
+        ]);
+
+        // Show icon
+        const showIconRow = new Adw.SwitchRow({ title: 'Show icon' });
+        settings.bind('show-icon', showIconRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        group.add(showIconRow);
+
+        // Monitor — only meaningful with Dash to Panel, which provides a panel
+        // on each monitor. On the stock top bar there is only one panel
+        // (primary), so the setting can't move the indicator. Hide the row
+        // when DtP is absent.
+        if (_dashToPanelEnabled()) {
+            const nMonitors = Gdk.Display.get_default()?.get_monitors().get_n_items() ?? 1;
+            const labels = [];
+            for (let i = 0; i < nMonitors; i++)
+                labels.push(i === 0 ? 'Monitor 0 (primary)' : `Monitor ${i}`);
+            const monitorRow = new Adw.ComboRow({
+                title: 'Monitor',
+                model: Gtk.StringList.new(labels),
+            });
+            monitorRow.selected = Math.min(Math.max(0, settings.get_int('monitor')), nMonitors - 1);
+            monitorRow.connect('notify::selected', () => settings.set_int('monitor', monitorRow.selected));
+            group.add(monitorRow);
+        }
+
+        // Proxy URL
+        const proxyRow = new Adw.EntryRow({
+            title: 'Proxy URL (empty for direct, e.g. http://localhost:11809)',
+        });
+        settings.bind('proxy-url', proxyRow, 'text', Gio.SettingsBindFlags.DEFAULT);
+        group.add(proxyRow);
     }
-
-    // Refresh interval
-    const intervalSpin = new Gtk.SpinButton({
-        adjustment: new Gtk.Adjustment({ lower: 10, upper: 600, step_increment: 10,
-            value: settings.get_int('refresh-interval') }),
-        numeric: true,
-    });
-    settings.bind('refresh-interval', intervalSpin, 'value', Gio.SettingsBindFlags.DEFAULT);
-    addRow('Refresh interval (seconds)', intervalSpin);
-
-    // Display mode
-    const displayCombo = new Gtk.ComboBoxText();
-    displayCombo.append('text', 'Text (percentage)');
-    displayCombo.append('bar', 'Progress Bar');
-    displayCombo.append('both', 'Both');
-    displayCombo.set_active_id(settings.get_string('display-mode'));
-    displayCombo.connect('changed', () => settings.set_string('display-mode', displayCombo.get_active_id()));
-    addRow('Display mode', displayCombo);
-
-    // Icon style
-    const iconCombo = new Gtk.ComboBoxText();
-    iconCombo.append('color', 'Color');
-    iconCombo.append('monochrome', 'Monochrome');
-    iconCombo.set_active_id(settings.get_string('icon-style'));
-    iconCombo.connect('changed', () => settings.set_string('icon-style', iconCombo.get_active_id()));
-    addRow('Icon style', iconCombo);
-
-    // Show icon
-    const showIconSwitch = new Gtk.Switch({ valign: Gtk.Align.CENTER });
-    settings.bind('show-icon', showIconSwitch, 'active', Gio.SettingsBindFlags.DEFAULT);
-    addRow('Show icon', showIconSwitch);
-
-    // Monitor — only meaningful with Dash to Panel, which provides a panel on
-    // each monitor. On the stock top bar there is only one panel (primary), so
-    // the setting can't move the indicator. Hide the row when DtP is absent.
-    if (_dashToPanelEnabled()) {
-        const nMonitors = Gdk.Display.get_default()?.get_monitors().get_n_items() ?? 1;
-        const monitorCombo = new Gtk.ComboBoxText();
-        for (let i = 0; i < nMonitors; i++)
-            monitorCombo.append(String(i), i === 0 ? `Monitor 0 (primary)` : `Monitor ${i}`);
-        monitorCombo.set_active_id(String(settings.get_int('monitor')));
-        monitorCombo.connect('changed', () =>
-            settings.set_int('monitor', parseInt(monitorCombo.get_active_id())));
-        addRow('Monitor', monitorCombo);
-    }
-
-    // Proxy URL
-    const proxyEntry = new Gtk.Entry({
-        text: settings.get_string('proxy-url'),
-        placeholder_text: 'http://localhost:11809 (leave empty for direct)',
-        width_chars: 36,
-    });
-    proxyEntry.connect('changed', () => settings.set_string('proxy-url', proxyEntry.get_text()));
-    addRow('Proxy URL', proxyEntry);
-
-    return box;
 }

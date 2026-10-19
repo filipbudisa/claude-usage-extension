@@ -1,34 +1,32 @@
 'use strict';
 
-imports.gi.versions.Soup = '3.0';
+import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
+import Gio from 'gi://Gio';
+import St from 'gi://St';
+import Clutter from 'gi://Clutter';
+import Soup from 'gi://Soup?version=3.0';
 
-const { GLib, GObject, Gio, St, Clutter } = imports.gi;
-const Soup = imports.gi.Soup;
-const ExtensionUtils = imports.misc.extensionUtils;
-const Main = imports.ui.main;
-const PanelMenu = imports.ui.panelMenu;
-const PopupMenu = imports.ui.popupMenu;
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-const Me = ExtensionUtils.getCurrentExtension();
 const API_URL = 'https://api.anthropic.com/api/oauth/usage';
-
-let _indicator = null;
-let _settings = null;
-let _monitorChangedId = null;
 
 const ClaudeUsageIndicator = GObject.registerClass(
 class ClaudeUsageIndicator extends PanelMenu.Button {
-    _init(extensionPath, settings) {
+    _init(extension, settings) {
         super._init(0.0, 'Claude Usage Indicator');
 
-        this._extensionPath = extensionPath;
+        this._extension = extension;
         this._settings = settings;
         this._session = this._createSession();
         this._timerId = null;
 
         this._box = new St.BoxLayout({ style_class: 'panel-status-menu-box' });
 
-        const iconPath = GLib.build_filenamev([this._extensionPath, 'claude-icon-22.png']);
+        const iconPath = GLib.build_filenamev([extension.path, 'claude-icon-22.png']);
         const gicon = Gio.icon_new_for_string(iconPath);
         this._icon = new St.Icon({
             gicon,
@@ -124,9 +122,14 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
 
     _createMenu() {
         const mkSection = (title) => {
-            const box = new St.BoxLayout({ style_class: 'claude-usage-section', vertical: true, x_expand: true, x_align: Clutter.ActorAlign.FILL });
+            const box = new St.BoxLayout({
+                style_class: 'claude-usage-section',
+                orientation: Clutter.Orientation.VERTICAL,
+                x_expand: true,
+                x_align: Clutter.ActorAlign.FILL,
+            });
 
-            const header = new St.BoxLayout({ vertical: false, x_expand: true, x_align: Clutter.ActorAlign.FILL });
+            const header = new St.BoxLayout({ x_expand: true, x_align: Clutter.ActorAlign.FILL });
             header.add_child(new St.Label({ text: title, style_class: 'claude-section-title' }));
             const pct = new St.Label({
                 text: '...',
@@ -146,10 +149,10 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
             const resetLabel = new St.Label({ text: 'Resets: ...', style_class: 'claude-reset-label' });
             box.add_child(resetLabel);
 
-            // PopupMenuSection has no ornament label or extra left padding,
-            // so the content aligns with the separator lines.
+            // A hidden ornament leaves no extra left padding, so the content
+            // aligns with the separator lines.
             const item = new PopupMenu.PopupBaseMenuItem({ reactive: false, can_focus: false });
-            item._ornamentLabel.hide();
+            item.setOrnament(PopupMenu.Ornament.HIDDEN);
             item.add_child(box);
             this.menu.addMenuItem(item);
 
@@ -171,7 +174,7 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._refreshItem);
 
         const settingsItem = new PopupMenu.PopupMenuItem('Settings');
-        settingsItem.connect('activate', () => ExtensionUtils.openPrefs());
+        settingsItem.connect('activate', () => this._extension.openPreferences());
         this.menu.addMenuItem(settingsItem);
     }
 
@@ -334,25 +337,25 @@ class ClaudeUsageIndicator extends PanelMenu.Button {
     }
 });
 
-function init() {}
+export default class ClaudeUsageExtension extends Extension {
+    enable() {
+        this._settings = this.getSettings();
+        this._monitorChangedId = this._settings.connect('changed::monitor', () => this._placeIndicator());
+        this._placeIndicator();
+    }
 
-function _placeIndicator() {
-    _indicator?.destroy();
-    _indicator = new ClaudeUsageIndicator(Me.path, _settings);
-    const monitorIndex = _settings.get_int('monitor');
-    const dtpPanel = global.dashToPanel?.panels?.find(p => p.monitor.index === monitorIndex);
-    (dtpPanel ? dtpPanel.panel : Main.panel).addToStatusArea(Me.uuid, _indicator);
-}
+    _placeIndicator() {
+        this._indicator?.destroy();
+        this._indicator = new ClaudeUsageIndicator(this, this._settings);
+        const monitorIndex = this._settings.get_int('monitor');
+        const dtpPanel = global.dashToPanel?.panels?.find(p => p.monitor.index === monitorIndex);
+        (dtpPanel ? dtpPanel.panel : Main.panel).addToStatusArea(this.uuid, this._indicator);
+    }
 
-function enable() {
-    _settings = ExtensionUtils.getSettings();
-    _monitorChangedId = _settings.connect('changed::monitor', _placeIndicator);
-    _placeIndicator();
-}
-
-function disable() {
-    if (_monitorChangedId) { _settings.disconnect(_monitorChangedId); _monitorChangedId = null; }
-    _indicator?.destroy();
-    _indicator = null;
-    _settings = null;
+    disable() {
+        if (this._monitorChangedId) { this._settings.disconnect(this._monitorChangedId); this._monitorChangedId = null; }
+        this._indicator?.destroy();
+        this._indicator = null;
+        this._settings = null;
+    }
 }
